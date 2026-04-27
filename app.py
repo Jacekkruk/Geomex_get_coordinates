@@ -18,12 +18,20 @@ st.set_page_config(
 )
 
 # Ukrycie brandingu Streamlit
-st.markdown("""
-    <style>
-        #MainMenu, footer, header {visibility: hidden;}
-        .stDeployButton {display: none;}
-    </style>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <script>
+        // Zmiana tytułu strony przez JavaScript, aby oszukać przeglądarkę
+        window.parent.document.title = "MOJA NAZWA";
+        var link = window.parent.document.querySelector("link[rel*='icon']") || window.parent.document.createElement('link');
+        link.type = 'image/x-icon';
+        link.rel = 'shortcut icon';
+        link.href = 'https://cdn-icons-png.flaticon.com/512/854/854878.png';
+        window.parent.document.getElementsByTagName('head')[0].appendChild(link);
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
 
 # --- INICJALIZACJA STANU ---
 if "center" not in st.session_state:
