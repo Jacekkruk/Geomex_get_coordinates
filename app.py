@@ -6,61 +6,99 @@ from ezdxf import zoom
 from pyproj import Transformer
 import io
 import folium
+from folium.plugins import Fullscreen
 from streamlit_folium import st_folium
 import zipfile
 
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Geomex", page_icon="🗺️", layout="wide")
 
-# Inicjalizacja stanów (Tylko raz przy starcie)
-if 'center' not in st.session_state:
+# --- INICJALIZACJA STANU ---
+if "center" not in st.session_state:
     st.session_state.center = [52.0, 19.0]
-if 'zoom' not in st.session_state:
+if "zoom" not in st.session_state:
     st.session_state.zoom = 6
-if 'sel_id' not in st.session_state:
+if "sel_id" not in st.session_state:
     st.session_state.sel_id = ""
+if "last_coord" not in st.session_state:
+    st.session_state.last_coord = None
+
 
 # --- FUNKCJE ---
+def geocode_city(city_name: str):
+    """Wyszukiwanie lokalizacji przez Nominatim."""
+    if not city_name:
+        return None
 
-
-def geocode_city(city_name):
-    url = f"https://nominatim.openstreetmap.org/search?q={city_name},+Poland&format=json&limit=1"
+    url = (
+        f"https://nominatim.openstreetmap.org/search?"
+        f"q={city_name}, Poland&format=json&limit=1"
+    )
     try:
         r = httpx.get(
-            url, headers={"User-Agent": "GeomexApp/1.0"}, timeout=5.0)
+            url,
+            headers={"User-Agent": "GeomexApp/1.0"},
+            timeout=5.0,
+        )
+        r.raise_for_status()
         data = r.json()
         if data:
             return [float(data[0]["lat"]), float(data[0]["lon"])]
-    except:
+    except Exception:
         return None
 
+    return None
 
-def get_parcel_info(lon, lat):
-    url = f"https://uldk.gugik.gov.pl/?request=GetParcelByXY&xy={lon},{lat},4326&result=id"
+
+def get_parcel_info(lon: float, lat: float):
+    """Pobiera identyfikator działki na podstawie kliknięcia na mapie."""
+    url = (
+        "https://uldk.gugik.gov.pl/"
+        f"?request=GetParcelByXY&xy={lon},{lat},4326&result=id"
+    )
     try:
         r = httpx.get(url, timeout=5.0)
+        r.raise_for_status()
         wynik = r.text.strip().splitlines()
         if wynik and wynik[0] == "0":
             return wynik[1]
-    except:
+    except Exception:
         return None
 
+    return None
 
-def process_parcel(identyfikator):
-    url = f"https://uldk.gugik.gov.pl/?request=GetParcelById&id={identyfikator}&result=geom_wkt"
+
+def process_parcel(identyfikator: str):
+    """Pobiera geometrię działki i przelicza współrzędne do odpowiedniej strefy układu 2000."""
+    url = (
+        "https://uldk.gugik.gov.pl/"
+        f"?request=GetParcelById&id={identyfikator}&result=geom_wkt"
+    )
+
     try:
         r = httpx.get(url, timeout=10.0)
+        r.raise_for_status()
         wynik = r.text.strip().splitlines()
+
         if not wynik or wynik[0] != "0":
-            return None, "Błąd"
+            return None, "Błąd pobierania geometrii"
+
         wkt = wynik[1]
         coords_raw = re.findall(
-            r"([-+]?\d*\.\d+|\d+)\s+([-+]?\d*\.\d+|\d+)", wkt)
+            r"([-+]?\d*\.\d+|\d+)\s+([-+]?\d*\.\d+|\d+)",
+            wkt,
+        )
+
+        if not coords_raw:
+            return None, "Brak geometrii"
+
         x1, y1 = float(coords_raw[0][0]), float(coords_raw[0][1])
 
-        # Wybór układu 2000
-        to_w84 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
-        lon, lat = to_w84.transform(x1, y1)
+        # Określenie właściwej strefy PL-2000
+        to_wgs84 = Transformer.from_crs(
+            "EPSG:2180", "EPSG:4326", always_xy=True)
+        lon, lat = to_wgs84.transform(x1, y1)
+
         if lon < 16.5:
             epsg = "EPSG:2176"
         elif lon < 19.5:
@@ -70,78 +108,171 @@ def process_parcel(identyfikator):
         else:
             epsg = "EPSG:2179"
 
-        trans = Transformer.from_crs("EPSG:2180", epsg, always_xy=True)
-        pts = [trans.transform(float(x), float(y)) for x, y in coords_raw]
+        transformer = Transformer.from_crs("EPSG:2180", epsg, always_xy=True)
+        pts = [
+            transformer.transform(float(x), float(y))
+            for x, y in coords_raw
+        ]
+
         return pts, epsg
-    except:
-        return None, "Błąd"
+
+    except Exception as e:
+        return None, f"Błąd: {e}"
 
 
 # --- INTERFEJS ---
 st.title("🗺️ Geomex")
 
-# 1. Wyszukiwarka (Poza mapą, żeby nie psuła widoku)
+# --- WYSZUKIWARKA ---
 with st.container():
     c1, c2 = st.columns([4, 1])
-    city_q = c1.text_input("📍 Szukaj adresu", placeholder="Klembów, Marecka")
+
+    city_q = c1.text_input(
+        "📍 Szukaj miejscowości lub adresu",
+        placeholder="np. Klembów, ul. Marecka",
+    )
+
     if c2.button("Leć do...", use_container_width=True):
         res = geocode_city(city_q)
         if res:
             st.session_state.center = res
             st.session_state.zoom = 18
             st.rerun()
+        else:
+            st.warning("Nie znaleziono lokalizacji.")
 
-# 2. Mapa (Stabilna)
-m = folium.Map(location=st.session_state.center,
-               zoom_start=st.session_state.zoom)
-folium.WmsTileLayer(url="https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardFull",
-                    layers="Raster", name="Orto", overlay=False).add_to(m)
-folium.WmsTileLayer(url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
-                    layers="dzialki,numery_dzialek", name="Dzialki", transparent=True, overlay=True).add_to(m)
 
-# Kluczowe: st_folium z parametrami zapobiegającymi odświeżaniu
-out = st_folium(m, width="100%", height=500,
-                key="geomex_map_stable", returned_objects=["last_clicked"])
+# --- MAPA ---
+m = folium.Map(
+    location=st.session_state.center,
+    zoom_start=st.session_state.zoom,
+    tiles="OpenStreetMap",
+    control_scale=True,
+)
 
-# 3. Obsługa wyboru działki
+# Warstwa bazowa OSM
+folium.TileLayer(
+    "OpenStreetMap",
+    name="Mapa standardowa",
+    overlay=False,
+    control=True,
+).add_to(m)
+
+# Ortofotomapa Geoportalu
+folium.WmsTileLayer(
+    url="https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardFull",
+    layers="Raster",
+    name="Ortofotomapa",
+    fmt="image/png",
+    transparent=True,
+    overlay=True,
+    control=True,
+).add_to(m)
+
+# Granice i numery działek
+folium.WmsTileLayer(
+    url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
+    layers="dzialki,numery_dzialek",
+    name="Działki ewidencyjne",
+    fmt="image/png",
+    transparent=True,
+    overlay=True,
+    control=True,
+).add_to(m)
+
+# Dodatki
+Fullscreen().add_to(m)
+folium.LayerControl().add_to(m)
+
+# Render mapy
+out = st_folium(
+    m,
+    width=None,
+    height=550,
+    key="geomex_map_stable",
+    returned_objects=["last_clicked"],
+)
+
+
+# --- OBSŁUGA KLIKNIĘCIA ---
 if out and out.get("last_clicked"):
     clicked = out["last_clicked"]
-    if st.session_state.get('last_coord') != clicked:
+
+    if st.session_state.last_coord != clicked:
         st.session_state.last_coord = clicked
-        fid = get_parcel_info(clicked['lng'], clicked['lat'])
+
+        fid = get_parcel_info(clicked["lng"], clicked["lat"])
         if fid:
             st.session_state.sel_id = fid
 
-# 4. Sekcja Wyników i Pobierania
+
+# --- WYNIKI I POBIERANIE ---
 if st.session_state.sel_id:
     st.info(f"Wybrana działka: **{st.session_state.sel_id}**")
 
-    if st.button("🚀 GENERUJ PLIKI", use_container_width=True, type="primary"):
-        pts, epsg = process_parcel(st.session_state.sel_id)
-        if pts:
-            # TXT
-            txt = f"ID: {st.session_state.sel_id}\nUklad: {epsg}\n" + \
-                "".join(
-                    [f"{i+1}. {p[1]:.2f} {p[0]:.2f}\n" for i, p in enumerate(pts)])
-            # DXF
-            doc = ezdxf.new()
-            msp = doc.modelspace()
-            msp.add_lwpolyline(pts, close=True)
-            zoom.extents(msp)
-            dxf_io = io.StringIO()
-            doc.write(dxf_io)
-            dxf_v = dxf_io.getvalue()
-            # ZIP
-            z_io = io.BytesIO()
-            with zipfile.ZipFile(z_io, "w") as zf:
-                zf.writestr(f"{st.session_state.sel_id}.txt", txt)
-                zf.writestr(f"{st.session_state.sel_id}.dxf", dxf_v)
+    if st.button(
+        "🚀 GENERUJ PLIKI",
+        use_container_width=True,
+        type="primary",
+    ):
+        with st.spinner("Generowanie plików..."):
+            pts, epsg = process_parcel(st.session_state.sel_id)
 
-            st.divider()
-            st.download_button("📦 POBIERZ ZIP", z_io.getvalue(
-            ), f"Geomex_{st.session_state.sel_id}.zip", use_container_width=True)
-            c1, c2 = st.columns(2)
-            c1.download_button(
-                "📄 TXT", txt, f"{st.session_state.sel_id}.txt", use_container_width=True)
-            c2.download_button(
-                "📐 DXF", dxf_v, f"{st.session_state.sel_id}.dxf", use_container_width=True)
+            if pts:
+                # TXT
+                txt = (
+                    f"ID działki: {st.session_state.sel_id}\n"
+                    f"Układ współrzędnych: {epsg}\n\n"
+                )
+
+                for i, p in enumerate(pts, start=1):
+                    txt += f"{i}. X={p[0]:.2f} Y={p[1]:.2f}\n"
+
+                # DXF
+                doc = ezdxf.new("R2010")
+                msp = doc.modelspace()
+                msp.add_lwpolyline(pts, close=True)
+                zoom.extents(msp)
+
+                dxf_io = io.StringIO()
+                doc.write(dxf_io)
+                dxf_data = dxf_io.getvalue()
+
+                # ZIP
+                zip_io = io.BytesIO()
+                with zipfile.ZipFile(zip_io, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr(f"{st.session_state.sel_id}.txt", txt)
+                    zf.writestr(f"{st.session_state.sel_id}.dxf", dxf_data)
+
+                st.success("Pliki zostały wygenerowane.")
+                st.divider()
+
+                st.download_button(
+                    "📦 Pobierz ZIP",
+                    zip_io.getvalue(),
+                    file_name=f"Geomex_{st.session_state.sel_id}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
+
+                c1, c2 = st.columns(2)
+
+                with c1:
+                    st.download_button(
+                        "📄 Pobierz TXT",
+                        txt,
+                        file_name=f"{st.session_state.sel_id}.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                    )
+
+                with c2:
+                    st.download_button(
+                        "📐 Pobierz DXF",
+                        dxf_data,
+                        file_name=f"{st.session_state.sel_id}.dxf",
+                        mime="application/dxf",
+                        use_container_width=True,
+                    )
+            else:
+                st.error(f"Nie udało się przetworzyć działki. {epsg}")
