@@ -7,6 +7,7 @@ from pyproj import Transformer
 import io
 import folium
 from streamlit_folium import st_folium
+import zipfile  # Nowa biblioteka do tworzenia paczek ZIP
 
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(page_title="Geomex", page_icon="🗺️", layout="wide")
@@ -25,7 +26,7 @@ def get_id_by_xy(lon, lat):
     except:
         return None
 
-# 2. Funkcja: Wybór odpowiedniego układu 2000 (strefy 5, 6, 7 lub 8)
+# 2. Funkcja: Wybór odpowiedniego układu 2000
 
 
 def get_epsg_2000(x_1992, y_1992):
@@ -55,14 +56,11 @@ def process_parcel(identyfikator):
         wkt = wynik[1]
         coords_raw = re.findall(
             r"([-+]?\d*\.\d+|\d+)\s+([-+]?\d*\.\d+|\d+)", wkt)
-
         if not coords_raw:
             return None, "Błąd odczytu geometrii."
 
-        # Pierwszy punkt do ustalenia strefy EPSG
         x1, y1 = float(coords_raw[0][0]), float(coords_raw[0][1])
         target_epsg = get_epsg_2000(x1, y1)
-
         transformer = Transformer.from_crs(
             "EPSG:2180", target_epsg, always_xy=True)
 
@@ -79,78 +77,55 @@ def process_parcel(identyfikator):
 # --- INTERFEJS UŻYTKOWNIKA ---
 st.title("🗺️ Geomex - Interaktywna Mapa Działek")
 
-# Inicjalizacja stanu dla ID, jeśli jeszcze nie istnieje
 if 'selected_id' not in st.session_state:
     st.session_state['selected_id'] = ""
 
 tab1, tab2 = st.tabs(["📍 Wybierz z mapy", "⌨️ Wpisz ręcznie"])
 
 with tab1:
-    st.info("Przybliż mapę i kliknij w środek działki, aby pobrać jej numer.")
-
-    # Mapa startuje na środku Polski
+    st.info("Przybliż mapę i kliknij w działkę.")
     m = folium.Map(location=[52.0, 19.0], zoom_start=6)
-
-    # Dodanie Ortofotomapy (warstwa zdjęć satelitarnych)
     folium.WmsTileLayer(
         url="https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardFull",
-        layers="Raster",
-        name="Ortofotomapa",
-        fmt="image/png",
-        transparent=True,
-        overlay=False
+        layers="Raster", name="Ortofotomapa", fmt="image/png", transparent=True, overlay=False
     ).add_to(m)
-
-    # Dodanie warstwy Działek (KIEG)
     folium.WmsTileLayer(
         url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
-        layers="dzialki",
-        name="Działki",
-        fmt="image/png",
-        transparent=True,
-        overlay=True
+        layers="dzialki", name="Działki", fmt="image/png", transparent=True, overlay=True
     ).add_to(m)
 
-    # Wyświetlenie mapy
-    output = st_folium(m, width="100%", height=600)
+    output = st_folium(m, width="100%", height=500)
 
-    # Obsługa kliknięcia
     if output and output.get("last_clicked"):
-        lat = output["last_clicked"]["lat"]
-        lon = output["last_clicked"]["lng"]
-
-        with st.spinner("Identyfikowanie działki..."):
+        lat, lon = output["last_clicked"]["lat"], output["last_clicked"]["lng"]
+        with st.spinner("Identyfikowanie..."):
             found_id = get_id_by_xy(lon, lat)
             if found_id:
                 st.session_state['selected_id'] = found_id
                 st.success(f"Wybrana działka: {found_id}")
-            else:
-                st.error("Nie znaleziono działki w tym miejscu.")
 
 with tab2:
-    input_id = st.text_input(
-        "Wpisz identyfikator działki", value=st.session_state['selected_id'])
+    input_id = st.text_input("Identyfikator działki",
+                             value=st.session_state['selected_id'])
     if input_id:
         st.session_state['selected_id'] = input_id
 
-# --- GENEROWANIE PLIKÓW ---
+# --- GENEROWANIE DANYCH ---
 final_id = st.session_state['selected_id']
 
-if st.button("🚀 Generuj dane dla działki", use_container_width=True):
+if st.button("🚀 Przygotuj pliki do pobrania", use_container_width=True):
     if final_id:
-        with st.spinner('Pobieranie i przeliczanie współrzędnych...'):
+        with st.spinner('Przetwarzanie danych...'):
             punkty, epsg_result = process_parcel(final_id)
 
             if punkty:
-                st.balloons()
-
-                # Przygotowanie TXT
-                txt_output = f"ID: {final_id}\nUklad: {epsg_result}\nFormat: Nr. X(Polnocna) Y(Wschodnia)\n" + \
+                # 1. Przygotowanie TXT (jako string)
+                txt_content = f"ID: {final_id}\nUklad: {epsg_result}\nFormat: Nr. X(Polnocna) Y(Wschodnia)\n" + \
                     "-"*40 + "\n"
                 for i, (e, n) in enumerate(punkty, start=1):
-                    txt_output += f"{i}. {n:.2f} {e:.2f}\n"
+                    txt_content += f"{i}. {n:.2f} {e:.2f}\n"
 
-                # Przygotowanie DXF
+                # 2. Przygotowanie DXF (jako bytes)
                 doc = ezdxf.new('R2010')
                 msp = doc.modelspace()
                 msp.add_lwpolyline(punkty, close=True, dxfattribs={'color': 1})
@@ -158,16 +133,48 @@ if st.button("🚀 Generuj dane dla działki", use_container_width=True):
                     msp.add_text(str(i), dxfattribs={'height': 0.8}).set_placement(
                         (e+0.5, n+0.5))
                 zoom.extents(msp)
-                dxf_stream = io.StringIO()
-                doc.write(dxf_stream)
 
-                # Przyciski
-                c1, c2 = st.columns(2)
-                c1.download_button("📄 Pobierz TXT", data=txt_output,
-                                   file_name=f"{final_id}.txt", use_container_width=True)
-                c2.download_button("📐 Pobierz DXF", data=dxf_stream.getvalue(
-                ), file_name=f"{final_id}.dxf", use_container_width=True)
+                dxf_buffer = io.StringIO()
+                doc.write(dxf_buffer)
+                dxf_data = dxf_buffer.getvalue()
+
+                # 3. Tworzenie Archiwum ZIP (Pobierz oba naraz)
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    zip_file.writestr(f"{final_id}.txt", txt_content)
+                    zip_file.writestr(f"{final_id}.dxf", dxf_data)
+
+                st.divider()
+                st.subheader("Opcje pobierania:")
+
+                # PRZYCISK GŁÓWNY (Wszystko w jednym)
+                st.download_button(
+                    label="📦 POBIERZ WSZYSTKO (ZIP)",
+                    data=zip_buffer.getvalue(),
+                    file_name=f"Geomex_{final_id}.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+
+                # PRZYCISKI ODDZIELNE
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="📄 Pobierz tylko TXT",
+                        data=txt_content,
+                        file_name=f"{final_id}.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                with col2:
+                    st.download_button(
+                        label="📐 Pobierz tylko DXF",
+                        data=dxf_data,
+                        file_name=f"{final_id}.dxf",
+                        mime="application/dxf",
+                        use_container_width=True
+                    )
             else:
-                st.error(f"Coś poszło nie tak: {epsg_result}")
+                st.error("Błąd przetwarzania.")
     else:
-        st.warning("Najpierw wybierz działkę z mapy lub wpisz jej numer.")
+        st.warning("Najpierw wybierz działkę.")
