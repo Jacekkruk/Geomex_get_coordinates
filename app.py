@@ -11,7 +11,20 @@ from streamlit_folium import st_folium
 import zipfile
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Geomex", page_icon="🗺️", layout="wide")
+st.set_page_config(
+    page_title="Geomex_XY",
+    page_icon="🗺️",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Ukrycie brandingu Streamlit
+st.markdown("""
+    <style>
+        #MainMenu, footer, header {visibility: hidden;}
+        .stDeployButton {display: none;}
+    </style>
+""", unsafe_allow_html=True)
 
 # --- INICJALIZACJA STANU ---
 if "center" not in st.session_state:
