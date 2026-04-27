@@ -13,9 +13,8 @@ import zipfile
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(
     page_title="Geomex_XY",
-    page_icon="🗺️",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    page_icon="logo.png",
+    layout="centered"
 )
 
 # Ukrycie brandingu Streamlit
