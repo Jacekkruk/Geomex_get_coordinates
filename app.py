@@ -160,15 +160,13 @@ with st.container():
     ),
 
     if c2.button("Leć do...", use_container_width=True):
-        query = city_q.strip()
+        query = str(city_q).strip()
 
-        # Jeśli wpisano identyfikator działki
-        if re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", query):
+        if not query:
+            st.warning("Wpisz adres, miejscowość lub identyfikator działki.")
+        elif re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", query):
             st.session_state.sel_id = query
             st.success(f"Wczytano działkę: {query}")
-            st.rerun()
-
-        # Jeśli wpisano miejscowość lub adres
         else:
             res = geocode_city(query)
             if res:
