@@ -151,30 +151,74 @@ st.markdown(
 )
 
 # --- WYSZUKIWARKA ---
+# --- WYSZUKIWARKA Z PRZEŁĄCZNIKIEM ---
 with st.container():
+    # Przełącznik trybu
+    search_mode = st.radio(
+        "Wybierz metodę szukania:",
+        ["Adres lub Miejscowość", "Identyfikator działki (TERYT)"],
+        horizontal=True
+    )
+
     c1, c2 = st.columns([4, 1])
 
-    city_q = c1.text_input(
-        "📍 Wyszukaj lokalizację lub wpisz identyfikator działki",
-        placeholder="np. Klembów, ul. Marecka lub 146504_8.0603.8/11",
-    ),
+    if search_mode == "Adres lub Miejscowość":
+        city_q = c1.text_input(
+            "📍 Wpisz lokalizację",
+            placeholder="np. Klembów, ul. Marecka",
+            key="input_address"
+        )
 
-    if c2.button("Leć do...", use_container_width=True):
-        query = str(city_q).strip()
-
-        if not query:
-            st.warning("Wpisz adres, miejscowość lub identyfikator działki.")
-        elif "_" in query and "/" in query:
-            st.session_state.sel_id = query
-            st.success(f"Wczytano działkę: {query}")
-        else:
-            res = geocode_city(query)
-            if res:
-                st.session_state.center = res
-                st.session_state.zoom = 18
-                st.rerun()
+        if c2.button("Leć do...", use_container_width=True, key="btn_address"):
+            query = city_q.strip()
+            if query:
+                res = geocode_city(query)
+                if res:
+                    st.session_state.center = res
+                    st.session_state.zoom = 18
+                    st.rerun()
+                else:
+                    st.warning("Nie znaleziono takiej lokalizacji.")
             else:
-                st.warning("Nie znaleziono lokalizacji ani działki.")
+                st.warning("Wpisz nazwę miejscowości lub adres.")
+
+    else:
+        parcel_q = c1.text_input(
+            "🆔 Wpisz pełny identyfikator działki",
+            placeholder="np. 143405_2.0002.238",
+            key="input_parcel"
+        )
+
+        if c2.button("Wczytaj", use_container_width=True, key="btn_parcel"):
+            query = parcel_q.strip()
+            # Prostsza i skuteczniejsza walidacja identyfikatora TERYT
+            if re.match(r"^\d{6}_\d\.\d{4}\.\d+", query):
+                st.session_state.sel_id = query
+
+                # Opcjonalnie: Próbujemy scentrować mapę na tej działce
+                with st.spinner("Lokalizowanie działki..."):
+                    pts, info = process_parcel(query)
+                    if pts:
+                        # Obliczamy środek z punktów geometrii (średnia)
+                        avg_lon = sum(p[0] for p in pts) / len(pts)
+                        avg_lat = sum(p[1] for p in pts) / len(pts)
+
+                        # Musimy wrócić do WGS84 dla folium
+                        transformer_to_wgs = Transformer.from_crs(
+                            info, "EPSG:4326", always_xy=True)
+                        lon_w, lat_w = transformer_to_wgs.transform(
+                            avg_lon, avg_lat)
+
+                        st.session_state.center = [lat_w, lon_w]
+                        st.session_state.zoom = 18
+                        st.success(f"Znaleziono działkę w {info}")
+                        st.rerun()
+                    else:
+                        st.error(
+                            "Nie znaleziono działki o takim numerze w bazie GUGiK.")
+            else:
+                st.error(
+                    "Błędny format identyfikatora. Poprawny to np: 143405_2.0002.238")
 
 
 # --- MAPA ---
