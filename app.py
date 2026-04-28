@@ -164,7 +164,7 @@ with st.container():
 
         if not query:
             st.warning("Wpisz adres, miejscowość lub identyfikator działki.")
-        elif re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", query):
+        elif re.match(r"^\d{6}_\d(?:\.\d+)+/\d+$", query):
             st.session_state.sel_id = query
             st.success(f"Wczytano działkę: {query}")
         else:
