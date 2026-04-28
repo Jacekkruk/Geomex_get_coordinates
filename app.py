@@ -13,25 +13,18 @@ import zipfile
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(
     page_title="Geomex_XY",
-    page_icon="logo.png",
-    layout="centered"
+    page_icon="🗺️",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
 # Ukrycie brandingu Streamlit
-st.markdown(
-    """
-    <script>
-        // Zmiana tytułu strony przez JavaScript, aby oszukać przeglądarkę
-        window.parent.document.title = "MOJA NAZWA";
-        var link = window.parent.document.querySelector("link[rel*='icon']") || window.parent.document.createElement('link');
-        link.type = 'image/x-icon';
-        link.rel = 'shortcut icon';
-        link.href = 'https://cdn-icons-png.flaticon.com/512/854/854878.png';
-        window.parent.document.getElementsByTagName('head')[0].appendChild(link);
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+    <style>
+        #MainMenu, footer, header {visibility: hidden;}
+        .stDeployButton {display: none;}
+    </style>
+""", unsafe_allow_html=True)
 
 # --- INICJALIZACJA STANU ---
 if "center" not in st.session_state:
@@ -143,13 +136,35 @@ def process_parcel(identyfikator: str):
 # --- INTERFEJS ---
 st.title("🗺️ Geomex")
 
+# --- TRYB WYSZUKIWANIA ---
+search_mode = st.radio(
+    "Tryb wyszukiwania",
+    ["Miejscowość", "Dokładny adres"],
+    horizontal=True,
+)
+
+# Ułatwienie przewijania na urządzeniach mobilnych
+st.markdown(
+    """
+    <style>
+    iframe[title="streamlit_folium.st_folium"] {
+        touch-action: pan-y !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # --- WYSZUKIWARKA ---
 with st.container():
     c1, c2 = st.columns([4, 1])
 
     city_q = c1.text_input(
-        "📍 Szukaj miejscowości lub adresu",
-        placeholder="np. Klembów, ul. Marecka",
+        "📍 Wpisz lokalizację",
+        placeholder=(
+            "np. Klembów" if search_mode == "Miejscowość"
+            else "np. Warszawa, ul. Marszałkowska 10"
+        ),
     )
 
     if c2.button("Leć do...", use_container_width=True):
@@ -208,7 +223,7 @@ folium.LayerControl().add_to(m)
 out = st_folium(
     m,
     width=None,
-    height=550,
+    height=420,
     key="geomex_map_stable",
     returned_objects=["last_clicked"],
 )
