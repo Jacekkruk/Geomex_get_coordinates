@@ -161,17 +161,23 @@ with st.container():
     )
 
     if c2.button("Leć do...", use_container_width=True):
-        if re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", city_q.strip()):
-            st.session_state.sel_id= city_q.strip()
-            st.success(f"Wczytano działkę: {st.session_state.sel_id}")
+        query= city_q.strip()
+
+        # Jeśli wpisano identyfikator działki
+        if re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", query):
+            st.session_state.sel_id= query
+            st.success(f"Wczytano działkę: {query}")
+            st.rerun()
+
+        # Jeśli wpisano miejscowość lub adres
         else:
-            res= geocode_city(city_q)
+            res= geocode_city(query)
             if res:
                 st.session_state.center= res
                 st.session_state.zoom= 18
                 st.rerun()
             else:
-                st.warning("Nie znaleziono lokalizacji.")
+                st.warning("Nie znaleziono lokalizacji ani działki.")
 
 
 # --- MAPA ---
