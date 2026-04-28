@@ -108,7 +108,8 @@ def process_parcel(identyfikator: str):
         x1, y1 = float(coords_raw[0][0]), float(coords_raw[0][1])
 
         # Określenie właściwej strefy PL-2000
-        to_wgs84 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+        to_wgs84 = Transformer.from_crs(
+            "EPSG:2180", "EPSG:4326", always_xy=True)
         lon, lat = to_wgs84.transform(x1, y1)
 
         if lon < 16.5:
@@ -161,54 +162,54 @@ with st.container():
 
     if c2.button("Leć do...", use_container_width=True):
         if re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", city_q.strip()):
-            st.session_state.sel_id = city_q.strip()
+            st.session_state.sel_id= city_q.strip()
             st.success(f"Wczytano działkę: {st.session_state.sel_id}")
         else:
-            res = geocode_city(city_q)
+            res= geocode_city(city_q)
             if res:
-                st.session_state.center = res
-                st.session_state.zoom = 18
+                st.session_state.center= res
+                st.session_state.zoom= 18
                 st.rerun()
             else:
                 st.warning("Nie znaleziono lokalizacji.")
 
 
 # --- MAPA ---
-m = folium.Map(
-    location=st.session_state.center,
-    zoom_start=st.session_state.zoom,
-    tiles="OpenStreetMap",
-    control_scale=True,
+m= folium.Map(
+    location = st.session_state.center,
+    zoom_start = st.session_state.zoom,
+    tiles = "OpenStreetMap",
+    control_scale = True,
 )
 
 # Warstwa bazowa OSM
 folium.TileLayer(
     "OpenStreetMap",
-    name="Mapa standardowa",
-    overlay=False,
-    control=True,
+    name = "Mapa standardowa",
+    overlay = False,
+    control = True,
 ).add_to(m)
 
 # Ortofotomapa Geoportalu
 folium.WmsTileLayer(
-    url="https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardFull",
-    layers="Raster",
-    name="Ortofotomapa",
-    fmt="image/png",
-    transparent=True,
-    overlay=True,
-    control=True,
+    url = "https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardFull",
+    layers = "Raster",
+    name = "Ortofotomapa",
+    fmt = "image/png",
+    transparent = True,
+    overlay = True,
+    control = True,
 ).add_to(m)
 
 # Granice i numery działek
 folium.WmsTileLayer(
-    url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
-    layers="dzialki",
-    name="Działki ewidencyjne",
-    fmt="image/png",
-    transparent=True,
-    overlay=True,
-    control=True,
+    url = "https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
+    layers = "dzialki",
+    name = "Działki ewidencyjne",
+    fmt = "image/png",
+    transparent = True,
+    overlay = True,
+    control = True,
 ).add_to(m)
 
 # Dodatki
@@ -216,25 +217,25 @@ Fullscreen().add_to(m)
 folium.LayerControl().add_to(m)
 
 # Render mapy
-out = st_folium(
+out= st_folium(
     m,
-    width=None,
-    height=420,
-    key="geomex_map_stable",
-    returned_objects=["last_clicked"],
+    width = None,
+    height = 420,
+    key = "geomex_map_stable",
+    returned_objects = ["last_clicked"],
 )
 
 
 # --- OBSŁUGA KLIKNIĘCIA ---
 if out and out.get("last_clicked"):
-    clicked = out["last_clicked"]
+    clicked= out["last_clicked"]
 
     if st.session_state.last_coord != clicked:
-        st.session_state.last_coord = clicked
+        st.session_state.last_coord= clicked
 
-        fid = get_parcel_info(clicked["lng"], clicked["lat"])
+        fid= get_parcel_info(clicked["lng"], clicked["lat"])
         if fid:
-            st.session_state.sel_id = fid
+            st.session_state.sel_id= fid
 
 
 # --- WYNIKI I POBIERANIE ---
@@ -243,8 +244,8 @@ if st.session_state.sel_id:
 
     if st.button(
         "🚀 GENERUJ PLIKI",
-        use_container_width=True,
-        type="primary",
+        use_container_width = True,
+        type = "primary",
     ):
         with st.spinner("Generowanie plików..."):
             pts, epsg = process_parcel(st.session_state.sel_id)
