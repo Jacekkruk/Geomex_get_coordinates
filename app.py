@@ -13,7 +13,7 @@ import zipfile
 # --- KONFIGURACJA STRONY ---
 st.set_page_config(
     page_title="Geomex_XY",
-    page_icon="🗺️",
+    page_icon="logo.png",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
