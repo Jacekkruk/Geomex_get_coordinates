@@ -108,8 +108,7 @@ def process_parcel(identyfikator: str):
         x1, y1 = float(coords_raw[0][0]), float(coords_raw[0][1])
 
         # Określenie właściwej strefy PL-2000
-        to_wgs84 = Transformer.from_crs(
-            "EPSG:2180", "EPSG:4326", always_xy=True)
+        to_wgs84 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
         lon, lat = to_wgs84.transform(x1, y1)
 
         if lon < 16.5:
@@ -137,11 +136,6 @@ def process_parcel(identyfikator: str):
 st.title("🗺️ Geomex")
 
 # --- TRYB WYSZUKIWANIA ---
-search_mode = st.radio(
-    "Tryb wyszukiwania",
-    ["Miejscowość", "Dokładny adres"],
-    horizontal=True,
-)
 
 # Ułatwienie przewijania na urządzeniach mobilnych
 st.markdown(
@@ -160,21 +154,23 @@ with st.container():
     c1, c2 = st.columns([4, 1])
 
     city_q = c1.text_input(
-        "📍 Wpisz lokalizację",
-        placeholder=(
-            "np. Klembów" if search_mode == "Miejscowość"
-            else "np. Warszawa, ul. Marszałkowska 10"
-        ),
+        "📍 Wyszukaj lokalizację lub wpisz identyfikator działki",
+        placeholder="np. Klembów, ul. Marecka lub 146504_8.0603.8/11",
+    ),
     )
 
     if c2.button("Leć do...", use_container_width=True):
-        res = geocode_city(city_q)
-        if res:
-            st.session_state.center = res
-            st.session_state.zoom = 18
-            st.rerun()
+        if re.match(r"^\d{6}_\d\.\d{4}\.\d+/\d+$", city_q.strip()):
+            st.session_state.sel_id = city_q.strip()
+            st.success(f"Wczytano działkę: {st.session_state.sel_id}")
         else:
-            st.warning("Nie znaleziono lokalizacji.")
+            res = geocode_city(city_q)
+            if res:
+                st.session_state.center = res
+                st.session_state.zoom = 18
+                st.rerun()
+            else:
+                st.warning("Nie znaleziono lokalizacji.")
 
 
 # --- MAPA ---
@@ -207,7 +203,7 @@ folium.WmsTileLayer(
 # Granice i numery działek
 folium.WmsTileLayer(
     url="https://integracja.gugik.gov.pl/cgi-bin/KrajowaIntegracjaEwidencjiGruntow",
-    layers="dzialki,numery_dzialek",
+    layers="dzialki",
     name="Działki ewidencyjne",
     fmt="image/png",
     transparent=True,
